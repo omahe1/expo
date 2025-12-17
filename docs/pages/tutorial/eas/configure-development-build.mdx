@@ -1,206 +1,102 @@
----
-title: Configure a development build in cloud
-sidebar_title: Configure development build
-description: Learn how to configure a development build for a project using EAS Build.
-hasVideoLink: true
----
+const { ethers } = require('ethers');
+require('dotenv').config(); // Load the variables from .env file
 
-import { Collapsible } from '~/ui/components/Collapsible';
-import { ContentSpotlight } from '~/ui/components/ContentSpotlight';
-import { ProgressTracker } from '~/ui/components/ProgressTracker';
-import { Terminal } from '~/ui/components/Snippet';
-import { Step } from '~/ui/components/Step';
-import { CODE } from '~/ui/components/Text';
-import { VideoBoxLink } from '~/ui/components/VideoBoxLink';
+// --- 1. CONFIGURATION ---
+const PRIVATE_KEY = process.env.PRIVATE_KEY; 
+const RPC_URL = process.env.RPC_URL;
+const OMCOIN_CONTRACT_ADDRESS = process.env.OMCOIN_CONTRACT_ADDRESS;
 
-In this chapter, we'll set up and configure a development build with EAS for our example app.
+// The ABI snippet for the 'transfer' function (the minimum required)
+const OMCOIN_ABI = [
+    // Function to transfer tokens from one address to another
+    "function transfer(address to, uint256 amount) public returns (bool)" 
+];
 
-<VideoBoxLink videoId="uQCE9zl3dXU" title="Watch: How to configure a development build" />
+// --- 2. CORE TRANSFER FUNCTION ---
+async function rewardUserWithOMCOIN(recipientAddress, amountToReward) {
+    try {
+        // 2a. Connect to the BSC network
+        const provider = new ethers.providers.JsonRpcProvider(RPC_URL);
 
----
+        // 2b. Create a wallet instance for signing (This uses the server's private key)
+        const signer = new ethers.Wallet(PRIVATE_KEY, provider);
 
-## Understanding development builds
+        // 2c. Connect to the OMCOIN contract using its address, ABI, and the signer
+        const omcoinContract = new ethers.Contract(
+            OMCOIN_CONTRACT_ADDRESS,
+            OMCOIN_ABI,
+            signer
+        );
 
-Let's start by learning about what are development builds and why we need them.
+        // 2d. Format the amount using the token's decimals (18 in your case)
+        // This converts 10 OMCOIN into the massive number the smart contract expects (10 * 10^18)
+        const amountInWei = ethers.utils.parseUnits(amountToReward.toString(), 18);
 
-A [development build](/develop/development-builds/introduction/) is a debug version of our project. It is optimized for quick iterations when creating an app. It contains the [`expo-dev-client`](/versions/latest/sdk/dev-client/) library, which offers a robust and complete development environment. This setup allows us to integrate any native library or change code inside the [native directories](/workflow/overview/#android-and-ios-native-projects) as required.
+        // 2e. Execute the transfer transaction!
+        console.log(`Sending ${amountToReward} OMCOIN to ${recipientAddress}...`);
 
-### Key highlights
+        const tx = await omcoinContract.transfer(
+            recipientAddress, 
+            amountInWei,
+            // You can optionally specify gas limit/price for more control
+        );
 
-> **Note:** If you are familiar with [Expo Go](/get-started/expo-go/), think of a development build as a customizable version of Expo Go that is unique to the requirements of a project.
+        console.log('Transaction hash:', tx.hash);
 
-| Feature                           | Development Builds                                                                                                                             | Expo Go                                                                                              |
-| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| **Development phase**             | Offers web-like iteration speed for mobile app development.                                                                                    | Allows for quick iteration and testing of Expo SDK projects using the client app.                    |
-| **Collaboration**                 | Facilitates team testing with shared native runtime.                                                                                           | Easy project sharing via QR codes on a device.                                                       |
-| **Third-party libraries support** | Full support for any [third-party library](/workflow/using-libraries/#third-party-libraries), including those that require custom native code. | Limited to libraries within the Expo SDK, not suitable for custom native dependencies.               |
-| **Customization**                 | Extensive customization with [config plugins](/config-plugins/introduction/) and direct access to native code.                                 | Limited customization with a focus on Expo SDK capabilities without direct native code modification. |
-| **Intended use**                  | Ideal for full-fledged app development aimed at store deployment, offering a complete development environment and tools.                       | Ideal for learning, prototyping, and experimenting. Not recommended for production apps.             |
+        // Wait for the transaction to be mined (confirmed on the blockchain)
+        const receipt = await tx.wait();
+        console.log('Transaction confirmed in block:', receipt.blockNumber);
 
-<Step label="1">
+        return { success: true, hash: tx.hash };
 
-## Install expo-dev-client library
-
-To initialize our project for a development build, let's [`cd`](https://developer.mozilla.org/en-US/docs/Learn/Tools_and_testing/Understanding_client-side_tools/Command_line#basic_built-in_terminal_commands) inside our project directory and run the following command to install the library:
-
-<Terminal cmd={['$ npx expo install expo-dev-client']} />
-
-### Start the development server
-
-Run the `npx expo start` to start the [development server](/get-started/start-developing/#start-a-development-server):
-
-<Terminal cmd={['$ npx expo start']} />
-
-This command starts the metro bundler. In the terminal window, we see the QR code followed by the `Metro waiting on...` and a manifest URL:
-
-<ContentSpotlight
-  alt="Running development server"
-  src="/static/images/tutorial/eas/development-server.png"
-  className="max-w-[600px]"
-/>
-
-Let's notice the changes installing the `expo-dev-client` library:
-
-- The manifest URL contains `expo-development-client` along with the app scheme
-- The development server now operates for a development build (instead of Expo Go).
-
-Since we do not have a development build installed on one of our devices or an emulator/simulator, we can't run our project yet.
-
-</Step>
-
-<Step label="2">
-
-## Initialize a development build
-
-### Install EAS CLI
-
-We need to install the EAS Command Line Interface (CLI) tool as a global dependency on our local machine. Run the following command:
-
-<Terminal cmd={['$ npm install -g eas-cli']} />
-
-### Log in or sign up for an Expo account
-
-> If you have an Expo account and are signed in using Expo CLI, skip this step. If you don't have an Expo account, [sign up here](https://expo.dev/signup) and proceed with the login command described below.
-
-To log in, run the following command:
-
-<Terminal cmd={['$ eas login']} />
-
-This command asks for our Expo account email or username and password to complete the login.
-
-### Initialize and link the project to EAS
-
-For any new project, the first step is to initialize and link it to the EAS servers. Run the following command:
-
-<Terminal cmd={['$ eas init']} />
-
-On running, this command:
-
-- Requests verification of the account owner by entering our Expo account credentials and asks if we want to create a new EAS project:
-
-<Terminal
-  cmd={[
-    '# Output after running eas init',
-    '✔ Which account should own this project? > your-username',
-    '✔ Would you like to create a project for @your-username/sticker-smash? … yes',
-    '✔ Created @your-username/sticker-smash',
-    '✔ Project successfully linked (ID: XXXX-XX-XX-XXXX) (modified app.json)',
-  ]}
-/>
-
-- Creates EAS project and provides a link to that project which we can open in the EAS dashboard:
-
-<ContentSpotlight
-  alt="New project in EAS dashboard"
-  src="/static/images/tutorial/eas/new-project.png"
-/>
-
-- Generates a unique `projectId` and links this EAS project to the example app on our development machine.
-- Modifies **app.json** to include [`extra.eas.projectId`](/versions/latest/sdk/constants/#easconfig) and updates its value with the unique ID created.
-
-<Collapsible summary={<>What is <CODE>projectId</CODE> in app.json?</>}>
-
-When `eas init` runs, it associates a unique identifier for our project in **app.json** under `extra.eas.projectId`. The value of this property is used to identify our project on EAS servers.
-
-```json
-{
-  "extra": {
-    "eas": {
-      "projectId": "0cd3da2d-xxx-xxx-xxx-xxxxxxxxxx"
+    } catch (error) {
+        console.error("OMCOIN Reward Failed:", error.message);
+        return { success: false, error: error.message };
     }
-  }
 }
-```
 
-</Collapsible>
+// --- 3. EXAMPLE USAGE (Called by your Tap-to-Earn API endpoint) ---
+// Example: The user 'taps' enough to earn 10 OMCOIN.
+const userWalletAddress = "0xYourUsersWalletAddressGoesHere"; // The user's MetaMask/Trust Wallet address
+const rewardAmount = 10; 
 
-</Step>
+// This would be called by your Express/Node.js route when the user claims a reward
+// rewardUserWithOMCOIN(userWalletAddress, rewardAmount); 
+import React, { useState } from 'react';
+import { TouchableOpacity, Text, View } from 'react-native';
+import axios from 'axios'; // For making API calls
 
-<Step label="3">
+const TapGame = () => {
+    const [tapCount, setTapCount] = useState(0);
 
-## Configure project for EAS Build
+    const handleTap = async () => {
+        // 1. Update client-side state for instant feel
+        setTapCount(currentCount => currentCount + 1);
 
-To set up our project for EAS Build, run the following command:
+        // 2. Send request to your Game Server
+        try {
+            const response = await axios.post(
+                'https://yourserver.com/api/tap',
+                { taps: 1 }, // Send the increment
+                { headers: { Authorization: `Bearer YOUR_USER_JWT` } } // Secure Header
+            );
+            
+            // OPTIONAL: Server could return updated energy/score
+            // console.log("Server response:", response.data); 
 
-<Terminal cmd={['$ eas build:configure']} />
+        } catch (error) {
+            console.error("Tap submission failed:", error);
+            // Revert tapCount or show error to user
+        }
+    };
 
-On running, this command:
+    return (
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+            <Text style={{ fontSize: 40 }}>Taps: {tapCount}</Text>
+            <TouchableOpacity onPress={handleTap} style={{ padding: 50, backgroundColor: 'lightblue', borderRadius: 10 }}>
+                <Text style={{ fontSize: 30 }}>TAP HERE</Text>
+            </TouchableOpacity>
+        </View>
+    );
+};
 
-- Prompts to select a platform: **Android**, **iOS**, or **All**. Since we are creating Android and iOS apps, let's select **All**.
-- Creates **eas.json** in the root of our project's directory with the following configuration:
-
-```json eas.json
-{
-  "cli": {
-    "version": ">= 16.18.0",
-    "appVersionSource": "remote"
-  },
-  "build": {
-    "development": {
-      "developmentClient": true,
-      "distribution": "internal"
-    },
-    "preview": {
-      "distribution": "internal"
-    },
-    "production": {
-      "autoIncrement": true
-    }
-  },
-  "submit": {
-    "production": {}
-  }
-}
-```
-
-This is the default configuration for **eas.json** in a new project. It does two things:
-
-- Defines the current EAS CLI version.
-- Adds three [build profiles](/build/eas-json/#build-profiles): `development`, `preview`, and `production`.
-
-</Step>
-
-<Collapsible summary="Explore development profile further">
-
-**eas.json** is a collection of different build profiles. Each profile is tailored with distinct configurations to produce specific build types. These profiles can also include platform-specific settings for Android or iOS.
-
-Currently, our focus is on the `development` profile, which includes the following configuration:
-
-- [`developmentClient`](/eas/json/#developmentclient): Enabled (`true`) for creating a debug build. It loads the app using the `expo-dev-client` library, which provides development tools and generates a build artifact for device or emulator/simulator installation and allows using the app for local development as it supports updating the JavaScript on the fly.
-- [`distribution`](/eas/json/#distribution): Configured as `internal` to indicate that we want to share the build internally (instead of uploading it on app stores).
-
-> **Note**: Builds offer extensive customization options, including platform-specific settings and the ability to extend configurations across different build profiles. Learn more about [customizing build profiles](/build/eas-json/#build-profiles).
-
-</Collapsible>
-
-## Summary
-
-<ProgressTracker
-  currentChapterIndex={0}
-  name="EAS_TUTORIAL"
-  summary="
-We successfully used the EAS CLI to initialize, and configure our project, link it to EAS servers, and prepare a development build."
-  nextChapterDescription="In the next chapter, let's create a development build for Android, install it on a device and an emulator, and get it running with the development server."
-  nextChapterTitle="Create and run a cloud build for Android"
-  nextChapterLink="/tutorial/eas/android-development-build/"
-/>
